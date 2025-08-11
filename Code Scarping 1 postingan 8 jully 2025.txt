@@ -1,0 +1,65 @@
+import requests
+from bs4 import BeautifulSoup
+import re
+
+url = "https://procodecg.wordpress.com/2025/07/08/procodecg-kids-weekday-coding-class-tuesday-8-july-2025"
+
+response = requests.get(url)
+
+if response.status_code == 200:
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    judul = soup.find("h1", class_="entry-title").text.strip()
+    nama_kelas = judul
+
+    judul_parts = re.split(r"–|-", judul)
+    tanggal_kelas = "8 July 2025"
+    for part in judul_parts:
+        part = part.strip()
+        if re.match(r"\d{1,2} \w+ \d{4}", part):
+            tanggal_kelas = part
+            break
+
+    jenis_kelas_mapping = [
+        "Kids Weekday Coding Class",
+        "Kids Coding CAMP Mid 2025",
+        "Kids Regular Coding Class",
+        "Kids Private Coding Class",
+        "Group Coding Class"
+    ]
+    jenis_kelas = next((jk for jk in jenis_kelas_mapping if jk in judul), "Unknown")
+
+    nama_murid_list = [
+        "Almer", "Azmi", "Gadi", "Arya", "Kenzie", "Hugo", "Flurin", "Corsin",
+        "Mikayla", "Alan", "Aslan", "Hubby", "Javas", "Nares", "Wira"
+    ]
+
+
+    content = soup.find("div", class_="entry-content")
+    paragraf = content.find_all("p")
+
+    data_kelas = []
+
+    for p in paragraf:
+        teks = p.get_text().strip()
+        for nama in nama_murid_list:
+            if teks.startswith(nama):
+                data_kelas.append({
+                    "Tanggal Kelas": tanggal_kelas,
+                    "Nama Kelas": nama_kelas,
+                    "Jenis Kelas": jenis_kelas,
+                    "Nama Murid": nama,
+                    "Kehadiran": "Hadir",  # default hadir
+                    "Materi Utama": "Belajar coding sesuai jadwal",  # placeholder
+                    "Aktivitas / Tugas": teks[len(nama):].strip(),
+                    "Link Postingan": url
+                })
+
+    
+    for item in data_kelas:
+        print("=" * 60)
+        for k, v in item.items():
+            print(f"{k}: {v}")
+
+else:
+    print("Gagal mengakses halaman:", response.status_code)

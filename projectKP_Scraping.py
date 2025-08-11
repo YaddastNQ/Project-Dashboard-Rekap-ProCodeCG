@@ -1,0 +1,131 @@
+import requests
+from bs4 import BeautifulSoup
+import re
+import time
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
+
+# --- BAGIAN SCRAPING ---
+base_url = "https://procodecg.wordpress.com"
+archive_url = base_url + "/"
+
+jenis_kelas_mapping = [
+    "Kids Weekday Coding Class",
+    "Kids Coding CAMP Mid 2025",
+    "Kids Regular Coding Class",
+    "Kids Private Coding Class",
+    "Group Coding Class"
+]
+
+nama_murid_list = [
+    "Almer", "Azmi", "Gadi", "Arya", "Kenzie", "Hugo", "Flurin", "Corsin",
+    "Mikayla", "Alan", "Aslan", "Hubby", "Javas", "Nares", "Wira", "Aidia", "Syathir" 
+]
+
+# STEP 1: Ambil semua link postingan dari homepage
+response = requests.get(archive_url)
+soup = BeautifulSoup(response.text, "html.parser")
+
+post_links = []
+for a in soup.find_all("a", href=True):
+    href = a["href"]
+    if "/2025/" in href and "coding" in href.lower():
+        post_links.append(href)
+
+post_links = list(set(post_links))
+print(f"📄 Ditemukan {len(post_links)} postingan relevan\n")
+
+# Fungsi untuk ekstraksi tanggal
+def extract_date_from_title(title):
+    date_patterns = [
+        r"(\d{1,2})[\s\-–—/](\w+)[\s\-–—/](\d{4})",
+        r"(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})",
+        r"(\w+)\s(\d{1,2}),\s(\d{4})",
+    ]
+    
+    for pattern in date_patterns:
+        match = re.search(pattern, title, re.IGNORECASE)
+        if match:
+            day, month, year = match.groups()
+            month_mapping = {
+                'jan': 'Januari', 'januari': 'Januari',
+                'feb': 'Februari', 'februari': 'Februari',
+                'mar': 'Maret', 'maret': 'Maret',
+                'apr': 'April', 'april': 'April',
+                'mei': 'Mei', 'may': 'Mei',
+                'jun': 'Juni', 'juni': 'Juni',
+                'jul': 'Juli', 'juli': 'Juli',
+                'agu': 'Agustus', 'agustus': 'Agustus', 'Aug'
+                'sep': 'September', 'september': 'September',
+                'okt': 'Oktober', 'oktober': 'Oktober',
+                'nov': 'November', 'november': 'November',
+                'des': 'Desember', 'december': 'Desember'
+            }
+            month_lower = month.lower()[:3]
+            if month_lower in month_mapping:
+                month = month_mapping[month_lower]
+            return f"{day} {month} {year}"
+    return "Tidak Diketahui"
+
+# Fungsi scrape per postingan
+def scrape_post(url):
+    try:
+        res = requests.get(url)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        judul = soup.find("h1", class_="entry-title").text.strip()
+        nama_kelas = judul
+        tanggal_kelas = extract_date_from_title(judul)
+        jenis_kelas = next((jk for jk in jenis_kelas_mapping if jk in judul), "Unknown")
+        content = soup.find("div", class_="entry-content")
+        paragraf = content.find_all("p")
+        data_kelas = []
+        for p in paragraf:
+            teks = p.get_text().strip()
+            for nama in nama_murid_list:
+                if teks.startswith(nama):
+                    data_kelas.append([
+                        tanggal_kelas,
+                        nama_kelas,
+                        jenis_kelas,
+                        nama,
+                        "Hadir",
+                        teks[len(nama):].strip(),
+                        url
+                    ])
+        return data_kelas
+    except Exception as e:
+        print(f"❌ Gagal scraping {url}: {e}")
+        return []
+
+# SCRAPE semua postingan
+all_data = []
+for i, link in enumerate(post_links[:20]):  # bisa ubah jumlah
+    print(f"🔍 Scraping ({i+1}/{len(post_links)}): {link}")
+    data = scrape_post(link)
+    all_data.extend(data)
+    time.sleep(1)
+
+
+# --- SETUP SPREADSHEET ---
+print("💾 Menyimpan ke Google Sheets...")
+
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name(
+    r"d:\About KP\Project Bu Marissa\Codingan\credentials.json", scope
+)
+client = gspread.authorize(creds)
+
+spreadsheet = client.open("Data Scraping Progress Murid ProCodeCG")
+worksheet = spreadsheet.sheet1
+
+header = ["Tanggal Kelas", "Nama Kelas", "Jenis Kelas", "Nama Murid", "Kehadiran", "Tugas", "Link Postingan"]
+worksheet.clear()
+worksheet.append_row(header)
+
+# Upload data ke Google Sheets
+for row in all_data:
+    worksheet.append_row(row)
+
+
+print(f"\n✅ Total data berhasil disimpan: {len(all_data)} baris.")

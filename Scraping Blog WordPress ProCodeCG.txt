@@ -1,0 +1,127 @@
+import requests
+from bs4 import BeautifulSoup
+import re
+import time
+
+
+base_url = "https://procodecg.wordpress.com"
+archive_url = base_url + "/"
+
+jenis_kelas_mapping = [
+    "Kids Weekday Coding Class",
+    "Kids Coding CAMP Mid 2025",
+    "Kids Regular Coding Class",
+    "Kids Private Coding Class",
+    "Group Coding Class"
+]
+
+nama_murid_list = [
+    "Almer", "Azmi", "Gadi", "Arya", "Kenzie", "Hugo", "Flurin", "Corsin",
+    "Mikayla", "Alan", "Aslan", "Hubby", "Javas", "Nares", "Wira"
+]
+
+# --- STEP 1: Ambil semua link postingan dari homepage ---
+response = requests.get(archive_url)
+soup = BeautifulSoup(response.text, "html.parser")
+
+post_links = []
+for a in soup.find_all("a", href=True):
+    href = a["href"]
+    if "/2025/" in href and "coding" in href.lower():
+        post_links.append(href)
+
+post_links = list(set(post_links))
+print(f"📄 Ditemukan {len(post_links)} postingan relevan\n")
+
+# --- EKSTRAKSI TANGGAL DARI JUDUL ---
+def extract_date_from_title(title):
+    # Pola regex untuk format tanggal yang berbeda-beda
+    date_patterns = [
+        r"(\d{1,2})[\s\-–—/](\w+)[\s\-–—/](\d{4})",  # 12-Juli-2025, 12 Juli 2025
+        r"(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})",       # 12/07/2025, 12-07-2025
+        r"(\w+)\s(\d{1,2}),\s(\d{4})",                # July 12, 2025 (format Inggris)
+    ]
+    
+    for pattern in date_patterns:
+        match = re.search(pattern, title, re.IGNORECASE)
+        if match:
+            day, month, year = match.groups()
+            
+            month_mapping = {
+                'jan': 'Januari', 'januari': 'Januari',
+                'feb': 'Februari', 'februari': 'Februari',
+                'mar': 'Maret', 'maret': 'March',
+                'apr': 'April', 'april': 'April',
+                'mei': 'Mei', 'May'
+                'jun': 'Juni', 'juni': 'June',
+                'jul': 'Juli', 'juli': 'July',
+                'agu': 'Agustus', 'agustus': 'August',
+                'sep': 'September', 'september': 'September',
+                'okt': 'Oktober', 'oktober': 'October',
+                'nov': 'November', 'november': 'November',
+                'des': 'Desember', 'december': 'December'
+            }
+            
+            # Cari nama bulan yang cocok (3 huruf pertama)
+            month_lower = month.lower()[:3]
+            if month_lower in month_mapping:
+                month = month_mapping[month_lower]
+            
+            return f"{day} {month} {year}"
+    
+    return "Tidak Diketahui"
+
+# --- FUNGSI SCRAPE PER POSTINGAN ---
+def scrape_post(url):
+    try:
+        res = requests.get(url)
+        soup = BeautifulSoup(res.text, 'html.parser')
+
+        judul = soup.find("h1", class_="entry-title").text.strip()
+        nama_kelas = judul
+
+        # Ekstrak tanggal dari judul
+        tanggal_kelas = extract_date_from_title(judul)
+
+        # Deteksi jenis kelas
+        jenis_kelas = next((jk for jk in jenis_kelas_mapping if jk in judul), "Unknown")
+
+        # Ambil isi paragraf blog
+        content = soup.find("div", class_="entry-content")
+        paragraf = content.find_all("p")
+
+        data_kelas = []
+        for p in paragraf:
+            teks = p.get_text().strip()
+            for nama in nama_murid_list:
+                if teks.startswith(nama):
+                    data_kelas.append({
+                        "Tanggal Kelas": tanggal_kelas,
+                        "Nama Kelas": nama_kelas,
+                        "Jenis Kelas": jenis_kelas,
+                        "Nama Murid": nama,
+                        "Kehadiran": "Hadir",
+                        "Aktivitas / Tugas": teks[len(nama):].strip(),
+                        "Link Postingan": url
+                    })
+        return data_kelas
+
+    except Exception as e:
+        print(f"❌ Gagal scraping {url}: {e}")
+        return []
+
+# --- SCRAPE SEMUA POSTINGAN ---
+all_data = []
+for i, link in enumerate(post_links[:20]):  # Bisa diubah jumlahnya
+    print(f"🔍 Scraping ({i+1}/{len(post_links)}): {link}")
+    data = scrape_post(link)
+    all_data.extend(data)
+    time.sleep(1)
+
+# --- TAMPILKAN HASILNYA ---
+print("\n✅ Total entri murid berhasil diambil:", len(all_data))
+for d in all_data:
+    print("="*60)
+    for k, v in d.items():
+        print(f"{k}: {v}")
+
